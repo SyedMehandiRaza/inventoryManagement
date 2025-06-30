@@ -3,6 +3,7 @@ const Product = require('../models/product.model');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
+
 exports.register = async (req, res) => {
   const { name, email, password, phone, company } = req.body;
 
@@ -39,6 +40,8 @@ exports.login = async (req, res) => {
       expiresIn: '1d'
     });
 
+    console.log("JWT_SECRET in LOGIN:", process.env.JWT_SECRET);
+
     res.json({ message: 'Login successful', token, customer });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -56,17 +59,33 @@ exports.getProducts = async (req, res) => {
 };
 
 exports.purchase = async (req, res) => {
-  const { productId, quantity } = req.body;
+  const { productId, quantity, companyId } = req.body;
   const customerId = req.user.id;
 
   try {
+    // Input validation
+    if (!productId || !quantity || !companyId) {
+      return res.status(400).json({ message: 'Product ID, quantity, and company ID are required' });
+    }
+
+    if (typeof quantity !== 'number' || quantity < 1) {
+      return res.status(400).json({ message: 'Quantity must be a positive number greater than 0' });
+    }
+
     const product = await Product.findById(productId);
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
-    if (quantity > product.quantity) {
-      return res.status(400).json({ message: 'Not enough stock' });
+    // Check if product belongs to requested company
+    if (!product.company || product.company.toString() !== companyId.toString()) {
+      return res.status(403).json({ message: 'Product does not belong to this company' });
     }
 
+    // Check if product has enough quantity
+    if (quantity > product.quantity) {
+      return res.status(400).json({ message: 'Not enough stock available' });
+    }
+
+    // Reduce stock and add to customer's purchases
     await Customer.findByIdAndUpdate(customerId, {
       $push: { purchases: { product: productId, quantity } }
     });
@@ -79,6 +98,7 @@ exports.purchase = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
 
 exports.getMyOrders = async (req, res) => {
   try {
